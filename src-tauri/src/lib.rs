@@ -1,5 +1,5 @@
 mod db;
-mod keychain;
+mod storage;
 mod linear;
 
 use db::{Db, Task};
@@ -18,20 +18,20 @@ async fn set_linear_token(token: String) -> Result<(), String> {
     let issues = linear::fetch_assigned_issues(&token).await?;
     // If we get here, the token is valid
     let _ = issues;
-    keychain::set_token("linear_api_key", &token)?;
+    storage::set_token("linear_api_key", &token)?;
     Ok(())
 }
 
 #[tauri::command]
 async fn has_linear_token() -> Result<bool, String> {
-    let token = keychain::get_token("linear_api_key")?;
+    let token = storage::get_token("linear_api_key")?;
     Ok(token.is_some())
 }
 
 #[tauri::command]
 async fn sync_linear() -> Result<Vec<Task>, String> {
     let db = get_db()?;
-    let token = keychain::get_token("linear_api_key")?
+    let token = storage::get_token("linear_api_key")?
         .ok_or_else(|| "No Linear API key configured".to_string())?;
 
     let run_id = db.record_sync_start("linear")?;
@@ -73,7 +73,10 @@ async fn get_tasks_linear() -> Result<Vec<Task>, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
+            storage::init(&app.handle())?;
+
             let app_data_dir = app
                 .path()
                 .app_data_dir()
