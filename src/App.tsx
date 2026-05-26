@@ -25,10 +25,15 @@ function App() {
   }
 
   if (view === "settings") {
-    return <SettingsView onConnected={() => setView("tasks")} />;
+    return (
+      <SettingsView
+        onConnected={() => setView("tasks")}
+        onBack={() => setView("tasks")}
+      />
+    );
   }
 
-  return <TasksView />;
+  return <TasksView onOpenSettings={() => setView("settings")} />;
 }
 
 export default App;

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Settings } from "lucide-react";
 import { Button } from "./ui/button";
 import { LinearSection } from "./LinearSection";
 import { GitHubSection } from "./GitHubSection";
@@ -28,7 +28,11 @@ function formatRelativeTime(isoTimestamp: string): string {
   return `${Math.floor(diffHours / 24)}d ago`;
 }
 
-export function TasksView() {
+interface TasksViewProps {
+  onOpenSettings: () => void;
+}
+
+export function TasksView({ onOpenSettings }: TasksViewProps) {
   const [linearTasks, setLinearTasks] = useState<Task[]>([]);
   const [githubTasks, setGithubTasks] = useState<Task[]>([]);
   const [hasLinear, setHasLinear] = useState(false);
@@ -164,18 +168,28 @@ export function TasksView() {
             )}
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={doSync}
-          disabled={syncing}
-          className="gap-1.5"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
-          />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={doSync}
+            disabled={syncing}
+            className="gap-1.5"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onOpenSettings}
+            className="h-8 w-8 p-0"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Error banner */}

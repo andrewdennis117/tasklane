@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { ArrowLeft } from "lucide-react";
 import {
   Card,
   CardHeader,
@@ -11,28 +12,48 @@ import { Button } from "./ui/button";
 import {
   setLinearToken,
   setGitHubToken,
+  hasLinearToken,
+  hasGitHubToken,
   getSyncIntervalHours,
   setSyncIntervalHours,
 } from "../lib/api";
 
 interface SettingsViewProps {
   onConnected: () => void;
+  onBack?: () => void;
 }
 
-type Step = "linear" | "github";
+type Step = "loading" | "linear" | "github";
 
-export function SettingsView({ onConnected }: SettingsViewProps) {
-  const [step, setStep] = useState<Step>("linear");
+export function SettingsView({ onConnected, onBack }: SettingsViewProps) {
+  const [step, setStep] = useState<Step>("loading");
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncInterval, setSyncInterval] = useState("2");
+  const [linearConnected, setLinearConnected] = useState(false);
+  const [githubConnected, setGithubConnected] = useState(false);
 
   useEffect(() => {
-    getSyncIntervalHours()
-      .then((h) => setSyncInterval(String(h)))
-      .catch(() => {});
+    Promise.all([
+      hasLinearToken(),
+      hasGitHubToken(),
+      getSyncIntervalHours().catch(() => 2),
+    ]).then(([hasLinear, hasGitHub, interval]) => {
+      setLinearConnected(hasLinear);
+      setGithubConnected(hasGitHub);
+      setSyncInterval(String(interval));
+      // Skip to the right step based on what's already configured
+      if (hasLinear) {
+        setStep("github");
+      } else {
+        setStep("linear");
+      }
+    });
   }, []);
+
+  // Whether we can show a back button (at least one token exists)
+  const canGoBack = linearConnected || githubConnected;
 
   async function handleLinearSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -41,6 +62,7 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     setError(null);
     try {
       await setLinearToken(token.trim());
+      setLinearConnected(true);
       setToken("");
       setStep("github");
     } catch (err) {
@@ -69,6 +91,7 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     setError(null);
     try {
       await setGitHubToken(token.trim());
+      setGithubConnected(true);
       await saveIntervalAndFinish();
     } catch (err) {
       setError(
@@ -81,12 +104,31 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     }
   }
 
+  if (step === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
   if (step === "linear") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <Card className="w-full max-w-[420px]">
           <CardHeader>
-            <CardTitle className="text-xl">Welcome to Tasklane</CardTitle>
+            {canGoBack && onBack && (
+              <button
+                onClick={onBack}
+                className="mb-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                <ArrowLeft className="h-3 w-3" />
+                Back to tasks
+              </button>
+            )}
+            <CardTitle className="text-xl">
+              {canGoBack ? "Settings" : "Welcome to Tasklane"}
+            </CardTitle>
             <CardDescription>
               Connect your Linear account to get started.
             </CardDescription>
@@ -145,41 +187,72 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <Card className="w-full max-w-[420px]">
         <CardHeader>
-          <CardTitle className="text-xl">Add GitHub (Optional)</CardTitle>
+          {canGoBack && onBack && (
+            <button
+              onClick={onBack}
+              className="mb-2 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              Back to tasks
+            </button>
+          )}
+          <CardTitle className="text-xl">
+            {githubConnected ? "Settings" : "Add GitHub (Optional)"}
+          </CardTitle>
           <CardDescription>
-            Connect GitHub to see your assigned issues and PRs across all repos.
+            {githubConnected
+              ? "Manage your connections and sync settings."
+              : "Connect GitHub to see your assigned issues and PRs across all repos."}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleGitHubSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="github-token"
-                className="text-sm font-medium text-foreground"
-              >
-                GitHub Personal Access Token
-              </label>
-              <Input
-                id="github-token"
-                type="password"
-                placeholder="github_pat_..."
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                disabled={loading}
-              />
-              <p className="text-xs text-muted-foreground">
-                Create a fine-grained token with <strong>Issues</strong> and{" "}
-                <strong>Pull requests</strong> read access at{" "}
-                <a
-                  href="https://github.com/settings/personal-access-tokens/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary underline underline-offset-2 hover:text-primary/80"
+            {/* Connection status */}
+            {linearConnected && (
+              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="text-muted-foreground">Linear connected</span>
+              </div>
+            )}
+            {githubConnected && (
+              <div className="flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-sm">
+                <span className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="text-muted-foreground">
+                  GitHub connected
+                </span>
+              </div>
+            )}
+
+            {!githubConnected && (
+              <div className="space-y-2">
+                <label
+                  htmlFor="github-token"
+                  className="text-sm font-medium text-foreground"
                 >
-                  github.com/settings/tokens
-                </a>
-              </p>
-            </div>
+                  GitHub Personal Access Token
+                </label>
+                <Input
+                  id="github-token"
+                  type="password"
+                  placeholder="github_pat_..."
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  disabled={loading}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Create a fine-grained token with <strong>Issues</strong> and{" "}
+                  <strong>Pull requests</strong> read access at{" "}
+                  <a
+                    href="https://github.com/settings/personal-access-tokens/new"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2 hover:text-primary/80"
+                  >
+                    github.com/settings/tokens
+                  </a>
+                </p>
+              </div>
+            )}
 
             <div className="space-y-2 border-t border-border pt-4">
               <label
@@ -211,24 +284,35 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
               </div>
             )}
 
-            <div className="flex gap-3">
+            {githubConnected ? (
               <Button
                 type="button"
-                variant="outline"
-                className="flex-1"
+                className="w-full"
                 onClick={() => saveIntervalAndFinish()}
                 disabled={loading}
               >
-                Skip
+                Save
               </Button>
-              <Button
-                type="submit"
-                className="flex-1"
-                disabled={loading || !token.trim()}
-              >
-                {loading ? "Connecting..." : "Save and Connect"}
-              </Button>
-            </div>
+            ) : (
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => saveIntervalAndFinish()}
+                  disabled={loading}
+                >
+                  {canGoBack ? "Done" : "Skip"}
+                </Button>
+                <Button
+                  type="submit"
+                  className="flex-1"
+                  disabled={loading || !token.trim()}
+                >
+                  {loading ? "Connecting..." : "Save and Connect"}
+                </Button>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
