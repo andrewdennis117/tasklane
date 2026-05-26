@@ -15,6 +15,13 @@ export interface Task {
   source_metadata: string | null;
 }
 
+export interface SyncStatus {
+  linear: string | null;
+  github: string | null;
+  linear_in_progress: boolean;
+  github_in_progress: boolean;
+}
+
 export const setLinearToken = (token: string) =>
   invoke<void>("set_linear_token", { token });
 
@@ -38,3 +45,12 @@ export const syncGitHub = () =>
 
 export const getTasksGitHub = () =>
   invoke<Task[]>("get_tasks_github");
+
+export const getSyncStatus = () =>
+  invoke<SyncStatus>("get_sync_status");
+
+export const getSyncIntervalHours = () =>
+  invoke<number>("get_sync_interval_hours");
+
+export const setSyncIntervalHours = (hours: number) =>
+  invoke<void>("set_sync_interval_hours", { hours });

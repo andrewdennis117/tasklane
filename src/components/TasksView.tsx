@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { RefreshCw } from "lucide-react";
 import { Button } from "./ui/button";
 import { LinearSection } from "./LinearSection";
@@ -10,8 +11,22 @@ import {
   syncGitHub,
   hasLinearToken,
   hasGitHubToken,
+  getSyncStatus,
 } from "../lib/api";
-import type { Task } from "../lib/api";
+import type { Task, SyncStatus } from "../lib/api";
+
+function formatRelativeTime(isoTimestamp: string): string {
+  const date = new Date(isoTimestamp + "Z");
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 10) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} min ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
+}
 
 export function TasksView() {
   const [linearTasks, setLinearTasks] = useState<Task[]>([]);
@@ -19,8 +34,26 @@ export function TasksView() {
   const [hasLinear, setHasLinear] = useState(false);
   const [hasGitHub, setHasGitHub] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+
+  const loadTasks = useCallback(async () => {
+    const [linear, github] = await Promise.all([
+      getTasksLinear().catch(() => [] as Task[]),
+      getTasksGitHub().catch(() => [] as Task[]),
+    ]);
+    setLinearTasks(linear);
+    setGithubTasks(github);
+  }, []);
+
+  const refreshSyncStatus = useCallback(async () => {
+    try {
+      const status = await getSyncStatus();
+      setSyncStatus(status);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const doSync = useCallback(async () => {
     setSyncing(true);
@@ -50,13 +83,15 @@ export function TasksView() {
 
     try {
       await Promise.all(syncs);
-      setLastSynced(new Date());
     } catch (err) {
-      setError(typeof err === "string" ? err : "Sync failed. Please try again.");
+      setError(
+        typeof err === "string" ? err : "Sync failed. Please try again."
+      );
     } finally {
       setSyncing(false);
+      refreshSyncStatus();
     }
-  }, [hasLinear, hasGitHub]);
+  }, [hasLinear, hasGitHub, refreshSyncStatus]);
 
   useEffect(() => {
     // Check which tokens are available, load cached tasks, then sync
@@ -67,19 +102,9 @@ export function TasksView() {
       }
     );
 
-    // Load cached tasks immediately
-    getTasksLinear()
-      .then((cached) => {
-        if (cached.length > 0) setLinearTasks(cached);
-      })
-      .catch(() => {});
-
-    getTasksGitHub()
-      .then((cached) => {
-        if (cached.length > 0) setGithubTasks(cached);
-      })
-      .catch(() => {});
-  }, []);
+    loadTasks();
+    refreshSyncStatus();
+  }, [loadTasks, refreshSyncStatus]);
 
   // Trigger sync once we know which tokens exist
   useEffect(() => {
@@ -88,16 +113,22 @@ export function TasksView() {
     }
   }, [hasLinear, hasGitHub, doSync]);
 
-  function formatLastSynced(): string {
-    if (!lastSynced) return "Syncing...";
-    const diffMs = Date.now() - lastSynced.getTime();
-    const diffSec = Math.floor(diffMs / 1000);
-    if (diffSec < 10) return "Just now";
-    if (diffSec < 60) return `${diffSec}s ago`;
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin} min ago`;
-    return `${Math.floor(diffMin / 60)}h ago`;
-  }
+  // Listen for background sync events
+  useEffect(() => {
+    const unlisten = listen("tasks-synced", () => {
+      loadTasks();
+      refreshSyncStatus();
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [loadTasks, refreshSyncStatus]);
+
+  // Poll sync status every 30s to keep timestamps fresh
+  useEffect(() => {
+    const id = setInterval(refreshSyncStatus, 30_000);
+    return () => clearInterval(id);
+  }, [refreshSyncStatus]);
 
   return (
     <div className="min-h-screen bg-background text-foreground px-6 py-6">
@@ -105,9 +136,33 @@ export function TasksView() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Tasklane</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Last synced {formatLastSynced()}
-          </p>
+          {/* Per-source sync status */}
+          <div className="mt-1 flex gap-4 text-[11px] text-muted-foreground">
+            {hasLinear && (
+              <span>
+                Linear:{" "}
+                {syncStatus?.linear_in_progress ? (
+                  <span className="text-primary">syncing...</span>
+                ) : syncStatus?.linear ? (
+                  formatRelativeTime(syncStatus.linear)
+                ) : (
+                  "never"
+                )}
+              </span>
+            )}
+            {hasGitHub && (
+              <span>
+                GitHub:{" "}
+                {syncStatus?.github_in_progress ? (
+                  <span className="text-primary">syncing...</span>
+                ) : syncStatus?.github ? (
+                  formatRelativeTime(syncStatus.github)
+                ) : (
+                  "never"
+                )}
+              </span>
+            )}
+          </div>
         </div>
         <Button
           variant="outline"

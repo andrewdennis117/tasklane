@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Card,
   CardHeader,
@@ -8,7 +8,12 @@ import {
 } from "./ui/card";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import { setLinearToken, setGitHubToken } from "../lib/api";
+import {
+  setLinearToken,
+  setGitHubToken,
+  getSyncIntervalHours,
+  setSyncIntervalHours,
+} from "../lib/api";
 
 interface SettingsViewProps {
   onConnected: () => void;
@@ -21,6 +26,13 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncInterval, setSyncInterval] = useState("2");
+
+  useEffect(() => {
+    getSyncIntervalHours()
+      .then((h) => setSyncInterval(String(h)))
+      .catch(() => {});
+  }, []);
 
   async function handleLinearSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,6 +54,14 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     }
   }
 
+  async function saveIntervalAndFinish() {
+    const hours = parseInt(syncInterval, 10);
+    if (hours >= 1 && hours <= 24) {
+      await setSyncIntervalHours(hours).catch(() => {});
+    }
+    onConnected();
+  }
+
   async function handleGitHubSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!token.trim()) return;
@@ -49,7 +69,7 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
     setError(null);
     try {
       await setGitHubToken(token.trim());
-      onConnected();
+      await saveIntervalAndFinish();
     } catch (err) {
       setError(
         typeof err === "string"
@@ -161,6 +181,30 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
               </p>
             </div>
 
+            <div className="space-y-2 border-t border-border pt-4">
+              <label
+                htmlFor="sync-interval"
+                className="text-sm font-medium text-foreground"
+              >
+                Background sync interval
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="sync-interval"
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={syncInterval}
+                  onChange={(e) => setSyncInterval(e.target.value)}
+                  className="w-20"
+                  disabled={loading}
+                />
+                <span className="text-sm text-muted-foreground">
+                  hours (1-24)
+                </span>
+              </div>
+            </div>
+
             {error && (
               <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
@@ -172,7 +216,7 @@ export function SettingsView({ onConnected }: SettingsViewProps) {
                 type="button"
                 variant="outline"
                 className="flex-1"
-                onClick={() => onConnected()}
+                onClick={() => saveIntervalAndFinish()}
                 disabled={loading}
               >
                 Skip
