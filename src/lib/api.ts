@@ -11,6 +11,8 @@ export interface Task {
   priority: string | null;
   updated_at: string;
   body_md: string | null;
+  repo: string | null;
+  source_metadata: string | null;
 }
 
 export const setLinearToken = (token: string) =>

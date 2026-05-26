@@ -9,7 +9,7 @@ interface GitHubSectionProps {
 function groupByRepo(tasks: Task[]): Map<string, Task[]> {
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
-    const repo = task.assignee || "unknown";
+    const repo = task.repo || "unknown";
     if (!groups.has(repo)) {
       groups.set(repo, []);
     }

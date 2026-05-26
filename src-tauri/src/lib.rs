@@ -52,6 +52,8 @@ async fn sync_linear() -> Result<Vec<Task>, String> {
                     Some(&issue.priority_label),
                     &issue.updated_at,
                     issue.description.as_deref(),
+                    None,
+                    Some(&issue.source_metadata),
                 )?;
             }
             db.record_sync_finish(run_id, true, None)?;
@@ -101,7 +103,7 @@ async fn sync_github() -> Result<Vec<Task>, String> {
                     &issue.title,
                     Some(&issue.state),
                     &issue.url,
-                    Some(&issue.repo),
+                    None,
                     if issue.priority_label.is_empty() {
                         None
                     } else {
@@ -109,6 +111,8 @@ async fn sync_github() -> Result<Vec<Task>, String> {
                     },
                     &issue.updated_at,
                     issue.body.as_deref(),
+                    Some(&issue.repo),
+                    Some(&issue.source_metadata),
                 )?;
             }
             db.record_sync_finish(run_id, true, None)?;

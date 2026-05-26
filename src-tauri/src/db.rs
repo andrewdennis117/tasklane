@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+const SCHEMA_VERSION: i32 = 2;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: i64,
@@ -15,6 +17,8 @@ pub struct Task {
     pub priority: Option<String>,
     pub updated_at: String,
     pub body_md: Option<String>,
+    pub repo: Option<String>,
+    pub source_metadata: Option<String>,
 }
 
 pub struct Db {
@@ -35,13 +39,44 @@ impl Db {
 
     fn init_schema(&self) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
+
+        // Create version table if missing
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);",
+        )
+        .map_err(|e| e.to_string())?;
+
+        let current: Option<i32> = conn
+            .query_row(
+                "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+
+        if current != Some(SCHEMA_VERSION) {
+            // Destructive migration: tasks are just sync cache
+            conn.execute_batch(
+                "
+                DROP TABLE IF EXISTS tasks;
+                DELETE FROM schema_version;
+                ",
+            )
+            .map_err(|e| e.to_string())?;
+
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                params![SCHEMA_VERSION],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
         conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source TEXT NOT NULL CHECK(source IN ('linear', 'github')),
                 source_id TEXT NOT NULL,
-                repo_id INTEGER NULL,
                 title TEXT NOT NULL,
                 status TEXT,
                 url TEXT NOT NULL,
@@ -49,6 +84,8 @@ impl Db {
                 priority TEXT,
                 updated_at TEXT NOT NULL,
                 body_md TEXT,
+                repo TEXT,
+                source_metadata TEXT,
                 UNIQUE(source, source_id)
             );
             CREATE TABLE IF NOT EXISTS sync_runs (
@@ -79,11 +116,13 @@ impl Db {
         priority: Option<&str>,
         updated_at: &str,
         body_md: Option<&str>,
+        repo: Option<&str>,
+        source_metadata: Option<&str>,
     ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute(
-            "INSERT INTO tasks (source, source_id, title, status, url, assignee, priority, updated_at, body_md)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO tasks (source, source_id, title, status, url, assignee, priority, updated_at, body_md, repo, source_metadata)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(source, source_id) DO UPDATE SET
                 title = excluded.title,
                 status = excluded.status,
@@ -91,8 +130,10 @@ impl Db {
                 assignee = excluded.assignee,
                 priority = excluded.priority,
                 updated_at = excluded.updated_at,
-                body_md = excluded.body_md",
-            params![source, source_id, title, status, url, assignee, priority, updated_at, body_md],
+                body_md = excluded.body_md,
+                repo = excluded.repo,
+                source_metadata = excluded.source_metadata",
+            params![source, source_id, title, status, url, assignee, priority, updated_at, body_md, repo, source_metadata],
         )
         .map_err(|e| e.to_string())?;
         Ok(())
@@ -102,7 +143,7 @@ impl Db {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn
             .prepare(
-                "SELECT id, source, source_id, title, status, url, assignee, priority, updated_at, body_md
+                "SELECT id, source, source_id, title, status, url, assignee, priority, updated_at, body_md, repo, source_metadata
                  FROM tasks WHERE source = ?1 ORDER BY updated_at DESC",
             )
             .map_err(|e| e.to_string())?;
@@ -119,6 +160,8 @@ impl Db {
                     priority: row.get(7)?,
                     updated_at: row.get(8)?,
                     body_md: row.get(9)?,
+                    repo: row.get(10)?,
+                    source_metadata: row.get(11)?,
                 })
             })
             .map_err(|e| e.to_string())?;

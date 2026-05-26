@@ -12,6 +12,7 @@ pub struct LinearIssue {
     pub state_type: String,
     pub priority_label: String,
     pub description: Option<String>,
+    pub source_metadata: String,
 }
 
 #[derive(Deserialize)]
@@ -121,16 +122,23 @@ pub async fn fetch_assigned_issues(token: &str) -> Result<Vec<LinearIssue>, Stri
         .assigned_issues
         .nodes
         .into_iter()
-        .map(|n| LinearIssue {
-            id: n.id,
-            identifier: n.identifier,
-            title: n.title,
-            url: n.url,
-            updated_at: n.updated_at,
-            state_name: n.state.name,
-            state_type: n.state.state_type,
-            priority_label: n.priority_label,
-            description: n.description,
+        .map(|n| {
+            let source_metadata = serde_json::json!({
+                "priority_label": &n.priority_label,
+                "state_type": &n.state.state_type,
+            }).to_string();
+            LinearIssue {
+                id: n.id,
+                identifier: n.identifier,
+                title: n.title,
+                url: n.url,
+                updated_at: n.updated_at,
+                state_name: n.state.name,
+                state_type: n.state.state_type,
+                priority_label: n.priority_label,
+                description: n.description,
+                source_metadata,
+            }
         })
         .collect();
 
