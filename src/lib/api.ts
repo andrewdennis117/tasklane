@@ -24,3 +24,15 @@ export const syncLinear = () =>
 
 export const getTasksLinear = () =>
   invoke<Task[]>("get_tasks_linear");
+
+export const setGitHubToken = (token: string) =>
+  invoke<void>("set_github_token", { token });
+
+export const hasGitHubToken = () =>
+  invoke<boolean>("has_github_token");
+
+export const syncGitHub = () =>
+  invoke<Task[]>("sync_github");
+
+export const getTasksGitHub = () =>
+  invoke<Task[]>("get_tasks_github");

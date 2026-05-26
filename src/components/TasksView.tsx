@@ -2,11 +2,22 @@ import { useEffect, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "./ui/button";
 import { LinearSection } from "./LinearSection";
-import { getTasksLinear, syncLinear } from "../lib/api";
+import { GitHubSection } from "./GitHubSection";
+import {
+  getTasksLinear,
+  syncLinear,
+  getTasksGitHub,
+  syncGitHub,
+  hasLinearToken,
+  hasGitHubToken,
+} from "../lib/api";
 import type { Task } from "../lib/api";
 
 export function TasksView() {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [linearTasks, setLinearTasks] = useState<Task[]>([]);
+  const [githubTasks, setGithubTasks] = useState<Task[]>([]);
+  const [hasLinear, setHasLinear] = useState(false);
+  const [hasGitHub, setHasGitHub] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -14,29 +25,68 @@ export function TasksView() {
   const doSync = useCallback(async () => {
     setSyncing(true);
     setError(null);
+
+    const syncs: Promise<void>[] = [];
+
+    if (hasLinear) {
+      syncs.push(
+        syncLinear()
+          .then((fresh) => setLinearTasks(fresh))
+          .catch((err) => {
+            throw typeof err === "string" ? err : "Linear sync failed.";
+          })
+      );
+    }
+
+    if (hasGitHub) {
+      syncs.push(
+        syncGitHub()
+          .then((fresh) => setGithubTasks(fresh))
+          .catch((err) => {
+            throw typeof err === "string" ? err : "GitHub sync failed.";
+          })
+      );
+    }
+
     try {
-      const fresh = await syncLinear();
-      setTasks(fresh);
+      await Promise.all(syncs);
       setLastSynced(new Date());
     } catch (err) {
       setError(typeof err === "string" ? err : "Sync failed. Please try again.");
     } finally {
       setSyncing(false);
     }
-  }, []);
+  }, [hasLinear, hasGitHub]);
 
   useEffect(() => {
-    // Load cached tasks immediately, then sync in background
+    // Check which tokens are available, load cached tasks, then sync
+    Promise.all([hasLinearToken(), hasGitHubToken()]).then(
+      ([linear, github]) => {
+        setHasLinear(linear);
+        setHasGitHub(github);
+      }
+    );
+
+    // Load cached tasks immediately
     getTasksLinear()
       .then((cached) => {
-        if (cached.length > 0) {
-          setTasks(cached);
-        }
+        if (cached.length > 0) setLinearTasks(cached);
       })
       .catch(() => {});
 
-    doSync();
-  }, [doSync]);
+    getTasksGitHub()
+      .then((cached) => {
+        if (cached.length > 0) setGithubTasks(cached);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Trigger sync once we know which tokens exist
+  useEffect(() => {
+    if (hasLinear || hasGitHub) {
+      doSync();
+    }
+  }, [hasLinear, hasGitHub, doSync]);
 
   function formatLastSynced(): string {
     if (!lastSynced) return "Syncing...";
@@ -66,7 +116,9 @@ export function TasksView() {
           disabled={syncing}
           className="gap-1.5"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`}
+          />
           Refresh
         </Button>
       </div>
@@ -79,25 +131,25 @@ export function TasksView() {
       )}
 
       {/* Linear Section */}
-      <section className="mb-8">
-        <div className="mb-3 border-b border-border pb-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Linear
-          </span>
-        </div>
-        <LinearSection tasks={tasks} />
-      </section>
+      {hasLinear && (
+        <section className="mb-8">
+          <div className="mb-3 border-b border-border pb-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Linear
+            </span>
+          </div>
+          <LinearSection tasks={linearTasks} />
+        </section>
+      )}
 
-      {/* GitHub stub */}
+      {/* GitHub Section */}
       <section>
         <div className="mb-3 border-b border-border pb-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             GitHub
           </span>
         </div>
-        <p className="px-3 py-4 text-sm text-muted-foreground">
-          Coming in Phase 3.
-        </p>
+        <GitHubSection tasks={githubTasks} hasToken={hasGitHub} />
       </section>
     </div>
   );

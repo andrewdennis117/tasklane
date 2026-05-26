@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SettingsView } from "./components/SettingsView";
 import { TasksView } from "./components/TasksView";
-import { hasLinearToken } from "./lib/api";
+import { hasLinearToken, hasGitHubToken } from "./lib/api";
 
 type View = "loading" | "settings" | "tasks";
 
@@ -9,8 +9,10 @@ function App() {
   const [view, setView] = useState<View>("loading");
 
   useEffect(() => {
-    hasLinearToken()
-      .then((has) => setView(has ? "tasks" : "settings"))
+    Promise.all([hasLinearToken(), hasGitHubToken()])
+      .then(([hasLinear, hasGitHub]) =>
+        setView(hasLinear || hasGitHub ? "tasks" : "settings")
+      )
       .catch(() => setView("settings"));
   }, []);
 

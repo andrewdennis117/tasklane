@@ -1,6 +1,7 @@
 mod db;
 mod storage;
 mod linear;
+mod github;
 
 use db::{Db, Task};
 use std::sync::OnceLock;
@@ -69,6 +70,63 @@ async fn get_tasks_linear() -> Result<Vec<Task>, String> {
     db.get_tasks_by_source("linear")
 }
 
+#[tauri::command]
+async fn set_github_token(token: String) -> Result<(), String> {
+    let _ = github::fetch_assigned_issues_and_prs(&token).await?;
+    storage::set_token("github_pat", &token)?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn has_github_token() -> Result<bool, String> {
+    let token = storage::get_token("github_pat")?;
+    Ok(token.is_some())
+}
+
+#[tauri::command]
+async fn sync_github() -> Result<Vec<Task>, String> {
+    let db = get_db()?;
+    let token = storage::get_token("github_pat")?
+        .ok_or_else(|| "No GitHub token configured".to_string())?;
+
+    let run_id = db.record_sync_start("github")?;
+
+    match github::fetch_assigned_issues_and_prs(&token).await {
+        Ok(issues) => {
+            db.delete_tasks_by_source("github")?;
+            for issue in &issues {
+                db.upsert_task(
+                    "github",
+                    &issue.identifier,
+                    &issue.title,
+                    Some(&issue.state),
+                    &issue.url,
+                    Some(&issue.repo),
+                    if issue.priority_label.is_empty() {
+                        None
+                    } else {
+                        Some(&issue.priority_label)
+                    },
+                    &issue.updated_at,
+                    issue.body.as_deref(),
+                )?;
+            }
+            db.record_sync_finish(run_id, true, None)?;
+            db.get_tasks_by_source("github")
+        }
+        Err(e) => {
+            db.record_sync_finish(run_id, false, Some(&e))?;
+            Err(e)
+        }
+    }
+}
+
+#[tauri::command]
+async fn get_tasks_github() -> Result<Vec<Task>, String> {
+    let db = get_db()?;
+    db.get_tasks_by_source("github")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -93,6 +151,10 @@ pub fn run() {
             has_linear_token,
             sync_linear,
             get_tasks_linear,
+            set_github_token,
+            has_github_token,
+            sync_github,
+            get_tasks_github,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
